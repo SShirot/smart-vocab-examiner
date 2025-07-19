@@ -1,5 +1,5 @@
-The app I have GPT code for fun
-
+Vocab examiner
+If you want to learn words in few minutes whenever you in freetime. Check this app
 STREAMLIT APP LINK : 
 
 You can check the app here : https://smart-vocab-examiner-egtyemzx6wp6xffnwiwoup.streamlit.app/
