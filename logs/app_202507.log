@@ -1,0 +1,5 @@
+2025-07-19 11:27:00,041 - INFO - New quiz generation requested - Topic: maintain, Characteristics: environment
+2025-07-19 11:27:00,044 - INFO - Generating vocabulary list - Topic: maintain, Characteristics: environment
+2025-07-19 11:27:01,663 - INFO - Starting new quiz with 20 words
+2025-07-19 11:27:05,919 - INFO - Checking answer - Question: maintain, User Answer: duy trì, Direction: en-vi
+2025-07-19 11:27:07,566 - INFO - Correct answer - Question 1: maintain

@@ -4,6 +4,31 @@ import random
 import re
 import google.generativeai as genai
 from streamlit.components.v1 import html
+import logging
+from datetime import datetime
+
+# ========== LOGGING CONFIG ==========
+def setup_logger():
+    """Cấu hình logging cho ứng dụng"""
+    log_filename = f"logs/app_{datetime.now().strftime('%Y%m')}.log"
+    
+    # Tạo thư mục logs nếu chưa tồn tại
+    import os
+    os.makedirs('logs', exist_ok=True)
+    
+    # Cấu hình logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_filename, encoding='utf-8'),
+            logging.StreamHandler()
+        ]
+    )
+    return logging.getLogger(__name__)
+
+# Khởi tạo logger
+logger = setup_logger()
 
 # ========== CONFIG & SECURITY WARNING ==========
 st.set_page_config(page_title="🧠 Smart Vocab Quiz", layout="centered", initial_sidebar_state="auto")
@@ -106,9 +131,11 @@ def convert_json_to_txt(vocab_list):
 def start_quiz(vocab_data):
     """Khởi tạo hoặc reset trạng thái session để bắt đầu quiz."""
     if not vocab_data:
+        logger.warning("Attempted to start quiz with no vocabulary data")
         st.error("⚠️ Không thể bắt đầu quiz. Không tìm thấy dữ liệu từ vựng.")
         return
     
+    logger.info(f"Starting new quiz with {len(vocab_data)} words")
     random.shuffle(vocab_data)
     st.session_state.vocab = vocab_data
     st.session_state.index = 0
@@ -116,13 +143,14 @@ def start_quiz(vocab_data):
     st.session_state.sentence = ""
     st.session_state.direction = random.choice(["en-vi", "vi-en"])
     st.session_state.user_input = ""
-    st.session_state.correct_answers = 0  # Thêm biến đếm số câu đúng
+    st.session_state.correct_answers = 0
     st.rerun()
 
 # ========== GEMINI API FUNCTIONS ==========
 
 def generate_vocab_with_gemini(topic, characteristics):
     """Tạo danh sách từ vựng bằng Gemini theo định dạng yêu cầu."""
+    logger.info(f"Generating vocabulary list - Topic: {topic}, Characteristics: {characteristics}")
     
     # Prompt được thiết kế cực kỳ nghiêm ngặt để đảm bảo định dạng đầu ra
     prompt = f"""
@@ -150,6 +178,7 @@ def generate_vocab_with_gemini(topic, characteristics):
 
 def check_meaning_with_gemini(question, user_answer, correct_answer, word_type, direction):
     """Kiểm tra câu trả lời của người dùng và đưa ra giải thích."""
+    logger.info(f"Checking answer - Question: {question}, User Answer: {user_answer}, Direction: {direction}")
     explanation_lang = "Tiếng Việt" if direction == "en-vi" else "English"
     meaning_from = "Tiếng Anh" if direction == "en-vi" else "Tiếng Việt"
     meaning_to = "Tiếng Việt" if direction == "en-vi" else "English"
@@ -198,8 +227,10 @@ if "vocab" not in st.session_state:
 
             if submitted:
                 if not topic or not characteristics:
+                    logger.warning("Form submitted with empty fields")
                     st.warning("Please fill in both Topic and Characteristics.")
                 else:
+                    logger.info(f"New quiz generation requested - Topic: {topic}, Characteristics: {characteristics}")
                     with st.spinner("🧠 Gemini is thinking... Please wait."):
                         generated_txt = generate_vocab_with_gemini(topic, characteristics)
                     
@@ -229,6 +260,7 @@ else:
         final_score = st.session_state.correct_answers
         total_questions = len(st.session_state.vocab)
         score_percentage = (final_score / total_questions) * 100
+        logger.info(f"Quiz completed - Final Score: {final_score}/{total_questions} ({score_percentage:.1f}%)")
         
         st.success("🎉 You've completed the quiz! Well done!")
         st.balloons()  # Thêm hiệu ứng bóng bay khi hoàn thành
@@ -307,15 +339,18 @@ else:
 
     if submit_button:
         if not user_input:
+            logger.warning(f"Empty answer submitted for question {st.session_state.index + 1}")
             st.warning("Please enter an answer.")
         else:
             with st.spinner("Checking..."):
                 is_correct, explanation = check_meaning_with_gemini(prompt_question, user_input, correct_answer, q["type"], direction)
             
             if is_correct:
+                logger.info(f"Correct answer - Question {st.session_state.index + 1}: {prompt_question}")
                 st.session_state.feedback = f"✅ Correct! \n\n{explanation}"
                 st.session_state.correct_answers += 1 # Tăng biến đếm số câu đúng
             else:
+                logger.info(f"Incorrect answer - Question {st.session_state.index + 1}: {prompt_question}, User Answer: {user_input}, Correct Answer: {correct_answer}")
                 st.session_state.feedback = f"❌ Incorrect. The correct answer is: **{correct_answer}**\n\n{explanation}"
             
             # Tự động tạo câu ví dụ nếu trả lời đúng
