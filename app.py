@@ -3,6 +3,7 @@ import json
 import random
 import re
 import google.generativeai as genai
+from streamlit.components.v1 import html
 
 # ========== CONFIG & SECURITY WARNING ==========
 st.set_page_config(page_title="🧠 Smart Vocab Quiz", layout="centered", initial_sidebar_state="auto")
@@ -23,6 +24,60 @@ except (KeyError, FileNotFoundError):
     st.info("Tạo một thư mục `.streamlit` trong project của bạn, trong đó tạo file `secrets.toml` và thêm `GEMINI_API_KEY = 'your_key_here'` vào đó.")
     st.stop()
 
+def auto_focus_input():
+    """Hàm tạo JavaScript để tự động focus vào input field và xử lý phím Enter"""
+    js_code = """
+        <script>
+            function focusInput() {
+                // Tìm tất cả các input field
+                var inputs = window.parent.document.getElementsByTagName('input');
+                // Focus vào input field cuối cùng (input answer của quiz)
+                if (inputs.length > 0) {
+                    inputs[inputs.length - 1].focus();
+                }
+            }
+
+            function focusNextButton() {
+                // Tìm nút Next Question
+                var buttons = window.parent.document.getElementsByTagName('button');
+                for (var i = 0; i < buttons.length; i++) {
+                    if (buttons[i].innerText.includes('Next Question')) {
+                        buttons[i].focus();
+                        // Thêm event listener cho phím Enter
+                        window.parent.document.addEventListener('keydown', function(e) {
+                            if (e.key === 'Enter' && document.activeElement === buttons[i]) {
+                                buttons[i].click();
+                                // Sau khi click, đợi một chút để trang reload và focus lại vào input
+                                setTimeout(focusInput, 100);
+                            }
+                        });
+                        break;
+                    }
+                }
+            }
+
+            // Kiểm tra xem có feedback không (đã submit câu trả lời chưa)
+            var feedbackElements = window.parent.document.getElementsByClassName('stMarkdown');
+            var hasFeedback = false;
+            for (var i = 0; i < feedbackElements.length; i++) {
+                if (feedbackElements[i].innerText.includes('✅') || feedbackElements[i].innerText.includes('❌')) {
+                    hasFeedback = true;
+                    break;
+                }
+            }
+
+            // Nếu có feedback thì focus vào nút Next, không thì focus vào input
+            setTimeout(function() {
+                if (hasFeedback) {
+                    focusNextButton();
+                } else {
+                    focusInput();
+                }
+            }, 100);
+        </script>
+    """
+    return html(js_code)
+
 # ========== HELPER FUNCTIONS ==========
 
 def convert_txt_to_json(txt_string):
@@ -41,6 +96,13 @@ def convert_txt_to_json(txt_string):
             })
     return vocab_list
 
+def convert_json_to_txt(vocab_list):
+    """Chuyển đổi danh sách từ vựng từ JSON sang định dạng text."""
+    txt_lines = []
+    for item in vocab_list:
+        txt_lines.append(f'"{item["word"]}" ({item["type"]}) : "{item["meaning"]}"')
+    return "\n".join(txt_lines)
+
 def start_quiz(vocab_data):
     """Khởi tạo hoặc reset trạng thái session để bắt đầu quiz."""
     if not vocab_data:
@@ -54,6 +116,7 @@ def start_quiz(vocab_data):
     st.session_state.sentence = ""
     st.session_state.direction = random.choice(["en-vi", "vi-en"])
     st.session_state.user_input = ""
+    st.session_state.correct_answers = 0  # Thêm biến đếm số câu đúng
     st.rerun()
 
 # ========== GEMINI API FUNCTIONS ==========
@@ -64,7 +127,7 @@ def generate_vocab_with_gemini(topic, characteristics):
     # Prompt được thiết kế cực kỳ nghiêm ngặt để đảm bảo định dạng đầu ra
     prompt = f"""
     You are an API that generates vocabulary lists.
-    Your task is to create a list of 15-20 vocabulary words based on the user's request.
+    Your task is to create a list of vocabulary words based on the user's request, default is 15-20 words.
     You MUST follow this format for EACH line EXACTLY:
     "English Word" (type) : "Vietnamese Meaning"
 
@@ -163,7 +226,39 @@ if "vocab" not in st.session_state:
 else:
     # ========== QUIZ INTERFACE ==========
     if st.session_state.index >= len(st.session_state.vocab):
+        final_score = st.session_state.correct_answers
+        total_questions = len(st.session_state.vocab)
+        score_percentage = (final_score / total_questions) * 100
+        
         st.success("🎉 You've completed the quiz! Well done!")
+        st.balloons()  # Thêm hiệu ứng bóng bay khi hoàn thành
+        
+        # Hiển thị điểm số cuối cùng
+        st.markdown(f"""
+        ### 📊 Your Final Score:
+        - **Correct Answers:** {final_score}/{total_questions}
+        - **Score:** {score_percentage:.1f}%
+        """)
+        
+        # Đánh giá kết quả
+        if score_percentage >= 90:
+            st.success("🌟 Excellent! Outstanding performance!")
+        elif score_percentage >= 70:
+            st.success("👏 Good job! Keep up the good work!")
+        elif score_percentage >= 50:
+            st.info("💪 Not bad! Keep practicing to improve!")
+        else:
+            st.warning("📚 More practice needed. Don't give up!")
+        
+        # Add download button
+        vocab_text = convert_json_to_txt(st.session_state.vocab)
+        st.download_button(
+            label="📥 Download Vocabulary List",
+            data=vocab_text,
+            file_name="vocabulary_list.txt",
+            mime="text/plain"
+        )
+        
         if st.button("🔁 Restart Quiz"):
             # Chỉ reset lại index và các trạng thái liên quan để bắt đầu lại
             start_quiz(st.session_state.vocab)
@@ -174,9 +269,25 @@ else:
             st.rerun()
         st.stop()
 
-    # Progress bar
-    progress = (st.session_state.index + 1) / len(st.session_state.vocab)
-    st.progress(progress, text=f"Question {st.session_state.index + 1} of {len(st.session_state.vocab)}")
+    # Add Back button
+    if st.button("🏠 Back to Home", key="back_button"):
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+        st.rerun()
+
+    # Progress bar and score display during quiz
+    col1, col2 = st.columns([2, 1])
+    with col1:
+        progress = (st.session_state.index + 1) / len(st.session_state.vocab)
+        st.progress(progress, text=f"Question {st.session_state.index + 1} of {len(st.session_state.vocab)}")
+    with col2:
+        current_score = st.session_state.correct_answers
+        total_so_far = st.session_state.index
+        if total_so_far > 0:
+            current_percentage = (current_score / total_so_far) * 100
+            st.markdown(f"**Score:** {current_score}/{total_so_far} ({current_percentage:.1f}%)")
+        else:
+            st.markdown("**Score:** 0/0 (0%)")
     
     q = st.session_state.vocab[st.session_state.index]
     direction = st.session_state.direction
@@ -203,6 +314,7 @@ else:
             
             if is_correct:
                 st.session_state.feedback = f"✅ Correct! \n\n{explanation}"
+                st.session_state.correct_answers += 1 # Tăng biến đếm số câu đúng
             else:
                 st.session_state.feedback = f"❌ Incorrect. The correct answer is: **{correct_answer}**\n\n{explanation}"
             
@@ -220,3 +332,6 @@ else:
             st.session_state.sentence = ""
             st.session_state.direction = random.choice(["en-vi", "vi-en"])
             st.rerun()
+    
+    # Auto focus vào input field
+    auto_focus_input()
